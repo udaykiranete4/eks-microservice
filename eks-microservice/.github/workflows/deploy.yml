@@ -1,0 +1,218 @@
+name: Build and Deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: demo-cluster
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Build & Push Gateway Service
+  # ─────────────────────────────────────────
+  build-gateway:
+    name: Build Gateway Service
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build Gateway JAR
+      run: |
+        cd gateway-service
+        mvn clean package -DskipTests
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push Gateway image
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd gateway-service
+        docker build -t $ECR_REGISTRY/gateway-service:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/gateway-service:latest .
+        docker push $ECR_REGISTRY/gateway-service:$IMAGE_TAG
+        docker push $ECR_REGISTRY/gateway-service:latest
+        echo "IMAGE=$ECR_REGISTRY/gateway-service:$IMAGE_TAG" >> $GITHUB_ENV
+
+  # ─────────────────────────────────────────
+  # JOB 2: Build & Push Payment Service
+  # ─────────────────────────────────────────
+  build-payment:
+    name: Build Payment Service
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build Payment JAR
+      run: |
+        cd payment-service
+        mvn clean package -DskipTests
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push Payment image
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd payment-service
+        docker build -t $ECR_REGISTRY/payment-service:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/payment-service:latest .
+        docker push $ECR_REGISTRY/payment-service:$IMAGE_TAG
+        docker push $ECR_REGISTRY/payment-service:latest
+
+  # ─────────────────────────────────────────
+  # JOB 3: Build & Push Job Service
+  # ─────────────────────────────────────────
+  build-job:
+    name: Build Job Service
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build Job JAR
+      run: |
+        cd job-service
+        mvn clean package -DskipTests
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push Job image
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd job-service
+        docker build -t $ECR_REGISTRY/job-service:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/job-service:latest .
+        docker push $ECR_REGISTRY/job-service:$IMAGE_TAG
+        docker push $ECR_REGISTRY/job-service:latest
+
+  # ─────────────────────────────────────────
+  # JOB 4: Deploy to EKS (runs after all builds)
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: [build-gateway, build-payment, build-job]
+    if: github.ref == 'refs/heads/main'  # only deploy on main branch
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig for EKS
+      run: |
+        aws eks update-kubeconfig \
+          --region $AWS_REGION \
+          --name $EKS_CLUSTER
+
+    - name: Update image tags in K8s manifests
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" k8s/gateway/deployment.yaml
+        sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" k8s/payment/deployment.yaml
+        sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" k8s/job-service/deployment.yaml
+
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/gateway/
+        kubectl apply -f k8s/payment/
+        kubectl apply -f k8s/job-service/
+        kubectl apply -f k8s/ingress/
+
+    - name: Wait for rollout
+      run: |
+        kubectl rollout status deployment/gateway -n demo --timeout=120s
+        kubectl rollout status deployment/payment -n demo --timeout=120s
+        kubectl rollout status deployment/job-service -n demo --timeout=120s
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n demo
+        kubectl get services -n demo
+        kubectl get ingress -n demo
