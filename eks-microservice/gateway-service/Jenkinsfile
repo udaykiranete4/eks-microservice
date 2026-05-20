@@ -1,0 +1,35 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Code checkout done by Jenkins job'
+            }
+        }
+
+        stage('Maven Build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t gateway-service:jenkins .'
+            }
+        }
+
+        stage('Health Test') {
+            steps {
+                sh '''
+                    docker rm -f gateway-service-test || true
+                    docker run -d --name gateway-service-test -p 8081:8080 gateway-service:jenkins
+                    sleep 10
+                    curl http://localhost:8081/health
+                    docker rm -f gateway-service-test
+                '''
+            }
+        }
+    }
+}
