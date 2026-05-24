@@ -10,7 +10,9 @@ pipeline {
 
         stage('Maven Build') {
             steps {
+            dir('eks-microservice/gateway-service'){
                 sh 'mvn clean package'
+            }
             }
         }
 
