@@ -8,11 +8,16 @@ pipeline {
             }
         }
 
-        stage('Maven Build') {
+        stage('Maven Build & test') {
             steps {
             dir('eks-microservice/gateway-service'){
-                sh 'mvn clean package'
+                sh 'mvn clean test package'
             }
+            }
+            post{
+                always{
+                    junit 'eks-microservice/gateway-service/target/surefire-reports/*.xml'
+                }
             }
         }
 
