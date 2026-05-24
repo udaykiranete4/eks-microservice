@@ -34,7 +34,7 @@ pipeline {
                 sh '''
                     docker rm -f gateway-service-test || true
                     docker run -d --name gateway-service-test -p 8081:8080 gateway-service:jenkins
-                    sleep 20
+                    sleep 40
                     #docker exec gateway-service-test curl http://localhost:8081/actuator/health
                     docker exec gateway-service-test wget -qO- http://localhost:8080/actuator/health
                     docker rm -f gateway-service-test
