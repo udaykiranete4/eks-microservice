@@ -18,7 +18,9 @@ pipeline {
 
         stage('Docker Build') {
             steps {
+                dir('eks-microservice/gateway-service'){
                 sh 'docker build -t gateway-service:jenkins .'
+            }
             }
         }
 
